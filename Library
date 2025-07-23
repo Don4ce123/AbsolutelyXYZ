@@ -1,8 +1,5 @@
 local library = {}
 
--- Добавляем переменную для хранения текущего экземпляра меню
-library.currentMenu = nil
-
 local TweenService = game:GetService("TweenService")
 function library:tween(...) TweenService:Create(...):Play() end
 
@@ -79,12 +76,6 @@ function library:set_draggable(gui)
 end
 
 function library.new(library_title, cfg_location)
-    -- Удаляем предыдущее меню, если оно существует
-    if library.currentMenu then
-        library.currentMenu:Destroy()
-        library.currentMenu = nil
-    end
-
     local menu = {}
     menu.values = {}
     menu.on_load_cfg = library.signal.new("on_load_cfg")
@@ -103,7 +94,6 @@ function library.new(library_title, cfg_location)
         end
         return copy
     end
-    
     function menu.save_cfg(cfg_name)
         local values_copy = menu.copy(menu.values)
         for _,tab in next, values_copy do
@@ -120,7 +110,6 @@ function library.new(library_title, cfg_location)
 
         writefile(cfg_location..cfg_name..".txt", http:JSONEncode(values_copy))
     end
-    
     function menu.load_cfg(cfg_name)
         local new_values = http:JSONDecode(readfile(cfg_location..cfg_name..".txt"))
 
@@ -144,50 +133,30 @@ function library.new(library_title, cfg_location)
     end
 
     menu.open = true
-    local ScreenGui = library:create("ScreenGui", {
-        ResetOnSpawn = false,
-        ZIndexBehavior = Enum.ZIndexBehavior.Global,
-        Name = "unknown",
-        IgnoreGuiInset = true,
-    })
+local coreGui = game:GetService("CoreGui")
+local existingGui = coreGui:FindFirstChild("unknown")
+if existingGui then
+    existingGui:Destroy()
+end
 
-    -- Сохраняем текущее меню
-    library.currentMenu = ScreenGui
-
-    if syn then
-        syn.protect_gui(ScreenGui)
-    end
-
-    ScreenGui.Parent = game:GetService("CoreGui")
-
-    -- Добавляем метод Destroy для меню
-    function menu:Destroy()
-        if ScreenGui then
-            ScreenGui:Destroy()
-            ScreenGui = nil
-        end
-        library.currentMenu = nil
-    end
-
-    function menu.IsOpen()
-        return menu.open
-    end
-    
-    function menu.SetOpen(State)
-        ScreenGui.Enabled = state
-    end
+local ScreenGui = library:create("ScreenGui", {
+    ResetOnSpawn = false,
+    ZIndexBehavior = Enum.ZIndexBehavior.Global,
+    Name = "unknown",
+    IgnoreGuiInset = true,
+})
 
     uis.InputBegan:Connect(function(key)
         if key.KeyCode ~= Enum.KeyCode.Insert then return end
 
-        ScreenGui.Enabled = not ScreenGui.Enabled
+		ScreenGui.Enabled = not ScreenGui.Enabled
         menu.open = ScreenGui.Enabled
 
         while ScreenGui.Enabled do
             uis.MouseIconEnabled = true
             rs.RenderStepped:Wait()
         end
-    end)
+	end)
 
     local ImageLabel = library:create("ImageButton", {
         Name = "Main",
@@ -2077,6 +2046,7 @@ end
 
         return tab
     end
+
     return menu
 end
 
