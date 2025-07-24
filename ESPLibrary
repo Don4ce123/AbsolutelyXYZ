@@ -1,0 +1,286 @@
+-- Optimized ESP Script
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local localPlayer = Players.LocalPlayer
+local camera = workspace.CurrentCamera
+
+-- Configuration
+local ESP_SETTINGS = {
+    Enabled = false,
+    TeamCheck = false,
+    WallCheck = false,
+    
+    -- Visual settings
+    BoxColor = Color3.new(1, 1, 1),
+    BoxThickness = 1,
+    BoxTransparency = 0.7,
+    
+    HealthBar = true,
+    HealthBarWidth = 2,
+    HealthHighColor = Color3.new(0, 1, 0),
+    HealthLowColor = Color3.new(1, 0, 0),
+    
+    Skeleton = false,
+    SkeletonColor = Color3.new(1, 1, 1),
+    SkeletonThickness = 1,
+    
+    Tracer = false,
+    TracerColor = Color3.new(1, 1, 1),
+    TracerThickness = 1,
+    TracerPosition = "Bottom", -- "Top", "Middle", "Bottom"
+    
+    UpdateRate = 0.1 -- Seconds between updates for better performance
+}
+
+-- Bone connections for skeleton
+local BONE_CONNECTIONS = {
+    {"Head", "UpperTorso"},
+    {"UpperTorso", "LowerTorso"},
+    {"UpperTorso", "LeftUpperArm"},
+    {"LeftUpperArm", "LeftLowerArm"},
+    {"LeftLowerArm", "LeftHand"},
+    {"UpperTorso", "RightUpperArm"},
+    {"RightUpperArm", "RightLowerArm"},
+    {"RightLowerArm", "RightHand"},
+    {"LowerTorso", "LeftUpperLeg"},
+    {"LeftUpperLeg", "LeftLowerLeg"},
+    {"LeftLowerLeg", "LeftFoot"},
+    {"LowerTorso", "RightUpperLeg"},
+    {"RightUpperLeg", "RightLowerLeg"},
+    {"RightLowerLeg", "RightFoot"}
+}
+
+-- Cache system
+local cache = {
+    players = {},
+    lastUpdate = 0
+}
+
+-- Utility functions
+local function createDrawing(class, props)
+    local drawing = Drawing.new(class)
+    for prop, value in pairs(props) do
+        drawing[prop] = value
+    end
+    return drawing
+end
+
+local function lerpColor(minColor, maxColor, t)
+    return Color3.new(
+        minColor.R + (maxColor.R - minColor.R) * t,
+        minColor.G + (maxColor.G - minColor.G) * t,
+        minColor.B + (maxColor.B - minColor.B) * t
+    )
+end
+
+-- ESP management
+local function createESP(player)
+    if cache.players[player] then return end
+    
+    local esp = {
+        box = createDrawing("Square", {
+            Color = ESP_SETTINGS.BoxColor,
+            Thickness = ESP_SETTINGS.BoxThickness,
+            Filled = false,
+            Transparency = ESP_SETTINGS.BoxTransparency,
+            Visible = false
+        }),
+        healthBar = {
+            background = createDrawing("Line", {
+                Thickness = ESP_SETTINGS.HealthBarWidth + 2,
+                Color = Color3.new(0, 0, 0),
+                Visible = false
+            }),
+            fill = createDrawing("Line", {
+                Thickness = ESP_SETTINGS.HealthBarWidth,
+                Visible = false
+            })
+        },
+        tracer = createDrawing("Line", {
+            Thickness = ESP_SETTINGS.TracerThickness,
+            Color = ESP_SETTINGS.TracerColor,
+            Visible = false
+        }),
+        skeleton = {}
+    }
+    
+    -- Initialize skeleton lines
+    if ESP_SETTINGS.Skeleton then
+        for _ = 1, #BONE_CONNECTIONS do
+            table.insert(esp.skeleton, createDrawing("Line", {
+                Thickness = ESP_SETTINGS.SkeletonThickness,
+                Color = ESP_SETTINGS.SkeletonColor,
+                Visible = false
+            }))
+        end
+    end
+    
+    cache.players[player] = esp
+end
+
+local function removeESP(player)
+    local esp = cache.players[player]
+    if not esp then return end
+    
+    for _, drawing in pairs(esp) do
+        if type(drawing) == "table" then
+            for _, d in pairs(drawing) do
+                d:Remove()
+            end
+        else
+            drawing:Remove()
+        end
+    end
+    
+    cache.players[player] = nil
+end
+
+-- Visibility check with simple wall check
+local function isVisible(character)
+    if not ESP_SETTINGS.WallCheck then return true end
+    
+    local rootPart = character:FindFirstChild("HumanoidRootPart")
+    if not rootPart then return false end
+    
+    local ray = Ray.new(camera.CFrame.Position, (rootPart.Position - camera.CFrame.Position).Unit * 1000)
+    local hit, _ = workspace:FindPartOnRayWithIgnoreList(ray, {localPlayer.Character, character})
+    
+    return not hit
+end
+
+-- Main update function with rate limiting
+local function updateESP()
+    local now = os.clock()
+    if now - cache.lastUpdate < ESP_SETTINGS.UpdateRate then return end
+    cache.lastUpdate = now
+    
+    for player, esp in pairs(cache.players) do
+        local character = player.Character
+        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+        local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+        
+        local shouldShow = ESP_SETTINGS.Enabled and 
+                         character and 
+                         humanoid and 
+                         humanoid.Health > 0 and
+                         (not ESP_SETTINGS.TeamCheck or player.Team ~= localPlayer.Team) and
+                         isVisible(character)
+        
+        if shouldShow and rootPart then
+            local position, onScreen = camera:WorldToViewportPoint(rootPart.Position)
+            
+            if onScreen then
+                -- Calculate box dimensions
+                local charSize = (camera:WorldToViewportPoint(rootPart.Position - Vector3.new(0, 3, 0)).Y - 
+                                 camera:WorldToViewportPoint(rootPart.Position + Vector3.new(0, 2.6, 0)).Y) / 2
+                local boxSize = Vector2.new(math.floor(charSize * 1.5), math.floor(charSize * 1.8))
+                local boxPos = Vector2.new(math.floor(position.X - boxSize.X / 2), math.floor(position.Y - boxSize.Y / 2))
+                
+                -- Update box
+                esp.box.Size = boxSize
+                esp.box.Position = boxPos
+                esp.box.Visible = true
+                
+                -- Update health bar
+                if ESP_SETTINGS.HealthBar then
+                    local healthPct = humanoid.Health / humanoid.MaxHealth
+                    local healthBarLength = boxSize.Y * healthPct
+                    local healthBarPos = Vector2.new(boxPos.X - 5, boxPos.Y + boxSize.Y)
+                    
+                    esp.healthBar.background.From = healthBarPos
+                    esp.healthBar.background.To = Vector2.new(healthBarPos.X, healthBarPos.Y - boxSize.Y)
+                    esp.healthBar.background.Visible = true
+                    
+                    esp.healthBar.fill.From = Vector2.new(healthBarPos.X, healthBarPos.Y)
+                    esp.healthBar.fill.To = Vector2.new(healthBarPos.X, healthBarPos.Y - healthBarLength)
+                    esp.healthBar.fill.Color = lerpColor(ESP_SETTINGS.HealthLowColor, ESP_SETTINGS.HealthHighColor, healthPct)
+                    esp.healthBar.fill.Visible = true
+                else
+                    esp.healthBar.background.Visible = false
+                    esp.healthBar.fill.Visible = false
+                end
+                
+                -- Update tracer
+                if ESP_SETTINGS.Tracer then
+                    local tracerY
+                    if ESP_SETTINGS.TracerPosition == "Top" then
+                        tracerY = 0
+                    elseif ESP_SETTINGS.TracerPosition == "Middle" then
+                        tracerY = camera.ViewportSize.Y / 2
+                    else
+                        tracerY = camera.ViewportSize.Y
+                    end
+                    
+                    esp.tracer.From = Vector2.new(camera.ViewportSize.X / 2, tracerY)
+                    esp.tracer.To = Vector2.new(position.X, position.Y)
+                    esp.tracer.Visible = true
+                else
+                    esp.tracer.Visible = false
+                end
+                
+                -- Update skeleton
+                if ESP_SETTINGS.Skeleton then
+                    for i, bonePair in ipairs(BONE_CONNECTIONS) do
+                        local part1 = character:FindFirstChild(bonePair[1])
+                        local part2 = character:FindFirstChild(bonePair[2])
+                        
+                        if part1 and part2 then
+                            local pos1 = camera:WorldToViewportPoint(part1.Position)
+                            local pos2 = camera:WorldToViewportPoint(part2.Position)
+                            
+                            esp.skeleton[i].From = Vector2.new(pos1.X, pos1.Y)
+                            esp.skeleton[i].To = Vector2.new(pos2.X, pos2.Y)
+                            esp.skeleton[i].Visible = true
+                        else
+                            esp.skeleton[i].Visible = false
+                        end
+                    end
+                end
+            else
+                -- Off screen - hide everything
+                esp.box.Visible = false
+                esp.healthBar.background.Visible = false
+                esp.healthBar.fill.Visible = false
+                esp.tracer.Visible = false
+                for _, bone in ipairs(esp.skeleton) do
+                    bone.Visible = false
+                end
+            end
+        else
+            -- Character not valid - hide everything
+            esp.box.Visible = false
+            esp.healthBar.background.Visible = false
+            esp.healthBar.fill.Visible = false
+            esp.tracer.Visible = false
+            for _, bone in ipairs(esp.skeleton) do
+                bone.Visible = false
+            end
+        end
+    end
+end
+
+-- Player management
+local function onPlayerAdded(player)
+    if player ~= localPlayer then
+        createESP(player)
+    end
+end
+
+local function onPlayerRemoving(player)
+    removeESP(player)
+end
+
+-- Initial setup
+for _, player in ipairs(Players:GetPlayers()) do
+    if player ~= localPlayer then
+        createESP(player)
+    end
+end
+
+Players.PlayerAdded:Connect(onPlayerAdded)
+Players.PlayerRemoving:Connect(onPlayerRemoving)
+
+-- Main loop with optimized update rate
+RunService.RenderStepped:Connect(updateESP)
+
+return ESP_SETTINGS
