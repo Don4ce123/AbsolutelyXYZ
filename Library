@@ -1,5 +1,10 @@
 local library = {}
 
+-- Добавляем проверку на существующую библиотеку
+if _G.VilonityLib then
+    _G.VilonityLib:Destroy() -- Уничтожаем предыдущий экземпляр
+end
+
 local TweenService = game:GetService("TweenService")
 function library:tween(...) TweenService:Create(...):Play() end
 
@@ -7,14 +12,12 @@ local uis = game:GetService("UserInputService")
 
 function library:create(Object, Properties, Parent)
     local Obj = Instance.new(Object)
-
-    for i,v in pairs (Properties) do
+    for i,v in pairs(Properties) do
         Obj[i] = v
     end
     if Parent ~= nil then
         Obj.Parent = Parent
     end
-
     return Obj
 end
 
@@ -34,6 +37,17 @@ local mouse = local_player:GetMouse()
 
 local http = game:GetService("HttpService")
 local rs = game:GetService("RunService")
+
+-- Добавляем метод Destroy для очистки
+function library:Destroy()
+    if self.ScreenGui then
+        self.ScreenGui:Destroy()
+    end
+    _G.VilonityLib = nil
+end
+
+-- Сохраняем ссылку на библиотеку в глобальной переменной
+_G.VilonityLib = library
 
 function library:set_draggable(gui)
     local UserInputService = game:GetService("UserInputService")
@@ -94,6 +108,7 @@ function library.new(library_title, cfg_location)
         end
         return copy
     end
+
     function menu.save_cfg(cfg_name)
         local values_copy = menu.copy(menu.values)
         for _,tab in next, values_copy do
@@ -133,18 +148,25 @@ function library.new(library_title, cfg_location)
     end
 
     menu.open = true
-local coreGui = game:GetService("CoreGui")
-local existingGui = coreGui:FindFirstChild("unknown")
-if existingGui then
-    existingGui:Destroy()
-end
+    local ScreenGui = library:create("ScreenGui", {
+        ResetOnSpawn = false,
+        ZIndexBehavior = Enum.ZIndexBehavior.Global,
+        Name = "unknown",
+        IgnoreGuiInset = true,
+    })
 
-local ScreenGui = library:create("ScreenGui", {
-    ResetOnSpawn = false,
-    ZIndexBehavior = Enum.ZIndexBehavior.Global,
-    Name = "unknown",
-    IgnoreGuiInset = true,
-})
+	if syn then
+		syn.protect_gui(ScreenGui)
+	end
+
+    ScreenGui.Parent = game:GetService("CoreGui")
+
+    function menu.IsOpen()
+        return menu.open
+    end
+    function menu.SetOpen(State)
+        ScreenGui.Enabled = state
+    end
 
     uis.InputBegan:Connect(function(key)
         if key.KeyCode ~= Enum.KeyCode.Insert then return end
